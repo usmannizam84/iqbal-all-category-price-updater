@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iqbal Foods - All Category Price Updater</title>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f5f6f8;margin:0;color:#222}
+.container{max-width:1180px;margin:28px auto;padding:0 18px}
+h1{margin:0 0 6px;font-size:28px}
+.sub{color:#666;margin:0 0 24px}
+.card{background:#fff;border:1px solid #ddd;border-radius:10px;padding:20px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+label{font-weight:700;display:block;margin-bottom:7px}
+input[type=file]{width:100%;padding:10px;border:1px solid #bbb;border-radius:6px;background:#fff;box-sizing:border-box}
+button{border:0;border-radius:7px;padding:11px 18px;font-weight:700;cursor:pointer;margin:8px 8px 0 0}
+.primary{background:#1769aa;color:#fff}.secondary{background:#e9ecef;color:#222}.success{background:#2e7d32;color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+.note{font-size:13px;color:#666;line-height:1.45}
+.status{margin-top:14px;padding:12px;border-radius:7px;background:#f1f3f5;white-space:pre-wrap}
+.summary{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px}
+.metric{padding:12px;border-radius:8px;background:#f7f7f7;border:1px solid #ddd;text-align:center}
+.metric b{display:block;font-size:20px;margin-bottom:4px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border:1px solid #ddd;padding:7px;text-align:left}
+th{background:#f1f3f5}
+.markup{max-height:350px;overflow:auto}
+.badge{display:inline-block;padding:3px 7px;border-radius:12px;font-size:12px;font-weight:700}
+.green{background:#d9ead3}.yellow{background:#fff2cc}.red{background:#ffcccc}.orange{background:#fce5cd}.gray{background:#e6e6e6}
+.hidden{display:none}
+@media(max-width:800px){.grid{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Iqbal Foods – All Category Price Updater</h1>
+  <p class="sub">Browser-only tool. Files are processed locally in your browser; nothing is uploaded to a server.</p>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label for="erpFile">1. Retail ERP Excel file</label>
+        <input id="erpFile" type="file" accept=".xlsx,.xlsm">
+        <div class="note">Uses ERP <b>UOM MIX</b> for matching and <b>Unit Price</b> for cost.</div>
+      </div>
+      <div>
+        <label for="onlineFile">2. Online All Items Excel file</label>
+        <input id="onlineFile" type="file" accept=".xlsx,.xlsm">
+        <div class="note">Uses online <b>Universal Product Code</b>, <b>Category</b>, <b>Carton Size</b>, and <b>Price</b>.</div>
+      </div>
+    </div>
+    <button id="runBtn" class="primary">Calculate Prices</button>
+    <button id="reviewBtn" class="secondary" disabled>Download Review Excel</button>
+    <button id="bulkBtn" class="success" disabled>Download Bulk Upload Excel</button>
+    <div id="status" class="status">Select both Excel files to begin.</div>
+    <div id="summary" class="summary hidden"></div>
+  </div>
+
+  <div class="card">
+    <h3>Markup Table</h3>
+    <div class="markup"><table><thead><tr><th>Online Category</th><th>Markup</th></tr></thead><tbody id="markupBody"></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <h3>Important matching rules</h3>
+    <ul>
+      <li>Markup is determined from the <b>Online file's Category</b>, not the ERP category.</li>
+      <li>Unique ERP UOM MIX → automatic calculation.</li>
+      <li>Duplicate ERP UOM MIX → <b>Manual Review</b>; price is not changed.</li>
+      <li>No ERP match → <b>No ERP Match</b>; price is not changed.</li>
+      <li>Blank Carton Size → multiplier of 1. A numeric multiplier greater than 0 is applied.</li>
+      <li>Target price is rounded to the nearest price ending in <b>5 or 9 cents</b>.</li>
+      <li>The bulk workbook starts from the uploaded Online workbook and changes <b>only Price cells in Column F</b> for safe unique matches.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const MARKUPS = {
+  "Meat - Chicken": 0.25,
+  "Meat - Beef": 0.25,
+  "Meat-veal": 0.25,
+  "Meat- Goat/ Lamb": 0.25,
+  "Marinated Meat": 0.25,
+  "Meat- Duck": 0.25,
+  "Seafood": 0.25,
+  "Deli & Pre-Packed Meats": 0.25,
+  "Fruits & Vegetables": 0.25,
+
+  "Dairy": 0.28,
+  "Bakery": 0.28,
+  "Oil and Ghee": 0.28,
+  "Rice": 0.28,
+
+  "Frozen": 0.32,
+  "Grocery": 0.32,
+  "Recipe Mix": 0.32,
+  "Ready To Eat": 0.32,
+  "Snacks & Cookies": 0.32,
+  "Sweets-Candies-Chocolates": 0.32,
+  "Dates": 0.32,
+  "Dry Fruits & Nuts": 0.32,
+  "Beverages": 0.32,
+  "Tea & Coffee": 0.32,
+  "Pickles, Pastes & Sauces": 0.32,
+  "Spices": 0.32,
+  "Flour": 0.32,
+  "Daals & Pulses": 0.32,
+  "Organic": 0.32,
+
+  "Household Items": 0.35,
+  "Health & Beauty": 0.35,
+
+  "Gift Cards": 0
+};
+
+const $ = id => document.getElementById(id);
+const money = n => Number.isFinite(n) ? n.toFixed(2) : "";
+const norm = v => v == null ? "" : String(v).trim().toUpperCase();
+
+Object.entries(MARKUPS).forEach(([cat, pct]) => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${escapeHtml(cat)}</td><td>${(pct*100).toFixed(0)}%</td>`;
+  $("markupBody").appendChild(tr);
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function getSheetWithHeader(workbook, headerText, preferredRow) {
+  const target = norm(headerText);
+  for (const ws of workbook.worksheets) {
+    const row = ws.getRow(preferredRow || 1);
+    for (let c=1; c<=ws.columnCount; c++) {
+      if (norm(row.getCell(c).value) === target) return {ws, row: preferredRow || 1, col:c};
+    }
+  }
+  return null;
+}
+
+function findHeaderRowAndCols(ws, headers, preferredRow) {
+  const wanted = headers.map(norm);
+  const rowsToTry = [];
+  if (preferredRow) rowsToTry.push(preferredRow);
+  for (let r=1; r<=Math.min(ws.rowCount,10); r++) if (!rowsToTry.includes(r)) rowsToTry.push(r);
+  for (const r of rowsToTry) {
+    const found = {};
+    for (let c=1;c<=ws.columnCount;c++) {
+      const h=norm(ws.getRow(r).getCell(c).value);
+      if (wanted.includes(h)) found[h]=c;
+    }
+    if (wanted.every(h => found[h])) return {row:r, cols:found};
+  }
+  return null;
+}
+
+function nearest59(value) {
+  if (!Number.isFinite(value)) return null;
+  const dollar = Math.floor(value);
+  const centsCandidates = [
+    dollar*100+5, dollar*100+9,
+    (dollar+1)*100+5, (dollar+1)*100+9
+  ];
+  let best = centsCandidates[0];
+  for (const c of centsCandidates) {
+    const d = Math.abs(value*100-c);
+    const bd = Math.abs(value*100-best);
+    if (d < bd || (Math.abs(d-bd)<1e-9 && c<best)) best=c;
+  }
+  return best/100;
+}
+
+function toNumber(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const n = parseFloat(String(v).replace(/[$,]/g,"").trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+let reviewRows = [];
+let onlineBuffer = null;
+let onlineFileName = "";
+let resultReady = false;
+
+$("runBtn").addEventListener("click", async () => {
+  $("runBtn").disabled = true;
+  $("reviewBtn").disabled = true;
+  $("bulkBtn").disabled = true;
+  resultReady = false;
+  try {
+    const erpFile = $("erpFile").files[0];
+    const onlineFile = $("onlineFile").files[0];
+    if (!erpFile || !onlineFile) throw new Error("Please select both Excel files.");
+
+    $("status").textContent = "Reading Excel files…";
+    const erpBuffer = await erpFile.arrayBuffer();
+    onlineBuffer = await onlineFile.arrayBuffer();
+    onlineFileName = onlineFile.name;
+
+    const erpWb = new ExcelJS.Workbook();
+    await erpWb.xlsx.load(erpBuffer);
+    const onlineWb = new ExcelJS.Workbook();
+    await onlineWb.xlsx.load(onlineBuffer);
+
+    const erpWs = erpWb.worksheets[0];
+    const onlineWs = onlineWb.getWorksheet("ProductListing") || onlineWb.worksheets[0];
+
+    const erpHeaders = findHeaderRowAndCols(erpWs, ["UOM MIX","Unit Price"], 1);
+    if (!erpHeaders) throw new Error("Could not find ERP headers UOM MIX and Unit Price.");
+    const onlineHeaders = findHeaderRowAndCols(
+      onlineWs,
+      ["Category","Price","Carton Size","Universal Product Code"],
+      3
+    );
+    if (!onlineHeaders) throw new Error("Could not find online headers Category, Price, Carton Size and Universal Product Code.");
+
+    const erpCodeCol = erpHeaders.cols[norm("UOM MIX")];
+    const erpCostCol = erpHeaders.cols[norm("Unit Price")];
+    const onlineCategoryCol = onlineHeaders.cols[norm("Category")];
+    const onlinePriceCol = onlineHeaders.cols[norm("Price")];
+    const onlineMultiplierCol = onlineHeaders.cols[norm("Carton Size")];
+    const onlineCodeCol = onlineHeaders.cols[norm("Universal Product Code")];
+
+    // Build ERP map: code -> all matching ERP records.
+    const erpMap = new Map();
+    for (let r=erpHeaders.row+1; r<=erpWs.rowCount; r++) {
+      const code = norm(erpWs.getRow(r).getCell(erpCodeCol).value);
+      if (!code) continue;
+      const cost = toNumber(erpWs.getRow(r).getCell(erpCostCol).value);
+      const desc = erpWs.getRow(r).getCell(2).value ?? "";
+      const productNo = erpWs.getRow(r).getCell(1).value ?? "";
+      if (!erpMap.has(code)) erpMap.set(code, []);
+      erpMap.get(code).push({cost, desc, productNo, row:r});
+    }
+
+    const dataStart = onlineHeaders.row + 1;
+    reviewRows = [];
+    const safeUpdates = [];
+    const counts = {
+      total:0, unique:0, duplicate:0, noMatch:0, noCode:0,
+      same:0, increase:0, reduce:0, invalid:0, updates:0
+    };
+
+    $("status").textContent = "Calculating…";
+
+    for (let r=dataStart; r<=onlineWs.rowCount; r++) {
+      const row = onlineWs.getRow(r);
+      const codeRaw = row.getCell(onlineCodeCol).value;
+      const code = norm(codeRaw);
+      const name = row.getCell(3).value ?? "";
+      const category = String(row.getCell(onlineCategoryCol).value ?? "").trim();
+      const currentRaw = row.getCell(onlinePriceCol).value;
+      const multiplierRaw = row.getCell(onlineMultiplierCol).value;
+      const current = toNumber(currentRaw);
+
+      counts.total++;
+      let status="", action="", erpCost=null, markupPct=null, afterMarkup=null,
+          multiplier=1, afterMultiplier=null, target=null, difference=null,
+          matchCount=0, erpDesc="", erpProductNo="";
+
+      if (!code) {
+        counts.noCode++;
+        status="No ERP Match";
+        action="NO CHANGE";
+      } else if (!erpMap.has(code)) {
+        counts.noMatch++;
+        status="No ERP Match";
+        action="NO CHANGE";
+      } else {
+        const matches=erpMap.get(code);
+        matchCount=matches.length;
+        if (matches.length>1) {
+          counts.duplicate++;
+          status="Duplicate ERP Code – Manual Review";
+          action="NO CHANGE";
+          erpDesc=matches.map(x=>x.desc).join(" | ");
+        } else {
+          counts.unique++;
+          erpCost=matches[0].cost;
+          erpDesc=matches[0].desc;
+          erpProductNo=matches[0].productNo;
+
+          markupPct = Object.prototype.hasOwnProperty.call(MARKUPS, category) ? MARKUPS[category] : null;
+          if (multiplierRaw === null || multiplierRaw === undefined || String(multiplierRaw).trim()==="") {
+            multiplier=1;
+          } else {
+            multiplier=toNumber(multiplierRaw);
+          }
+
+          if (erpCost===null || markupPct===null || multiplier===null || multiplier<=0 || current===null) {
+            counts.invalid++;
+            status="Invalid/Blank Cost or Multiplier";
+            action="NO CHANGE";
+          } else {
+            afterMarkup=erpCost*(1+markupPct);
+            afterMultiplier=afterMarkup*multiplier;
+            target=nearest59(afterMultiplier);
+            difference=target-current;
+            if (Math.abs(difference)<0.005) {
+              counts.same++;
+              action="Same";
+            } else if (target>current) {
+              counts.increase++;
+              action="Increase";
+              safeUpdates.push({row:r,target});
+              counts.updates++;
+            } else {
+              counts.reduce++;
+              action="Reduce";
+              safeUpdates.push({row:r,target});
+              counts.updates++;
+            }
+            status="OK";
+          }
+        }
+      }
+
+      reviewRows.push({
+        onlineRow:r,
+        code:codeRaw ?? "",
+        name,
+        category,
+        current,
+        erpCost,
+        markupPct,
+        afterMarkup,
+        multiplier,
+        afterMultiplier,
+        target,
+        difference,
+        action,
+        status,
+        matchCount,
+        erpProductNo,
+        erpDesc
+      });
+    }
+
+    // Keep original workbook in memory; only Price values are changed.
+    for (const u of safeUpdates) {
+      onlineWs.getRow(u.row).getCell(onlinePriceCol).value = u.target;
+    }
+
+    window._bulkWorkbook = onlineWb;
+    window._bulkSheet = onlineWs;
+    window._bulkPriceCol = onlinePriceCol;
+    window._onlineFileName = onlineFileName;
+    window._counts = counts;
+
+    buildSummary(counts);
+    resultReady = true;
+    $("reviewBtn").disabled=false;
+    $("bulkBtn").disabled=false;
+    $("status").textContent =
+      `Done. ${counts.total.toLocaleString()} online items reviewed. ` +
+      `${counts.updates.toLocaleString()} safe price changes are ready for the bulk file.`;
+  } catch (err) {
+    console.error(err);
+    $("status").textContent = "Error: " + (err && err.message ? err.message : err);
+  } finally {
+    $("runBtn").disabled=false;
+  }
+});
+
+function buildSummary(c) {
+  const items = [
+    ["Online items",c.total],
+    ["Same",c.same],
+    ["Reduce",c.reduce],
+    ["Increase",c.increase],
+    ["Duplicates",c.duplicate],
+    ["No ERP match",c.noMatch],
+    ["Blank/no code",c.noCode],
+    ["Invalid",c.invalid],
+    ["Bulk price updates",c.updates]
+  ];
+  $("summary").classList.remove("hidden");
+  $("summary").style.gridTemplateColumns="repeat(3,1fr)";
+  $("summary").innerHTML=items.map(([a,b])=>`<div class="metric"><b>${Number(b).toLocaleString()}</b>${a}</div>`).join("");
+}
+
+$("reviewBtn").addEventListener("click", async () => {
+  if (!resultReady) return;
+  try {
+    $("status").textContent="Building review workbook…";
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Price Review");
+
+    const headers = [
+      "Online Row","Universal Product Code","Product Name","Category",
+      "Current Price","ERP Unit Price","Markup %","Price After Markup",
+      "Carton Size / Multiplier","Price After Multiplier","Rounded Target Price",
+      "Difference","Action","Status","ERP Match Count","ERP Product No.","ERP Description"
+    ];
+    ws.addRow(headers);
+    ws.getRow(1).font={bold:true,color:{argb:"FFFFFFFF"}};
+    ws.getRow(1).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF4472C4"}};
+    ws.freezePanes={ySplit:1};
+    ws.autoFilter={from:"A1",to:"Q1"};
+
+    reviewRows.forEach(x=>{
+      const row=ws.addRow([
+        x.onlineRow,x.code,x.name,x.category,
+        x.current,x.erpCost,x.markupPct,x.afterMarkup,
+        x.multiplier,x.afterMultiplier,x.target,
+        x.difference,x.action,x.status,x.matchCount,x.erpProductNo,x.erpDesc
+      ]);
+      for (let c=5;c<=12;c++) row.getCell(c).numFmt='0.00';
+      if (x.action==="Same") {
+        row.getCell(12).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFD9EAD3"}};
+        row.getCell(13).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFD9EAD3"}};
+      } else if (x.action==="Reduce") {
+        row.getCell(12).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFF2CC"}};
+        row.getCell(13).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFF2CC"}};
+      } else if (x.action==="Increase") {
+        row.getCell(12).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFCCCC"}};
+        row.getCell(13).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFCCCC"}};
+      } else {
+        row.getCell(13).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFCE5CD"}};
+        row.getCell(14).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFCE5CD"}};
+      }
+    });
+
+    const widths=[11,20,42,28,14,14,11,18,22,20,20,14,14,30,15,16,45];
+    widths.forEach((w,i)=>ws.getColumn(i+1).width=w);
+
+    // Add a compact summary sheet.
+    const s=wb.addWorksheet("Summary");
+    s.addRow(["Iqbal Foods – All Category Price Updater"]);
+    s.getRow(1).font={bold:true,size:16};
+    s.addRow([]);
+    const c=window._counts;
+    [
+      ["Online items",c.total],
+      ["Unique ERP matches",c.unique],
+      ["Same",c.same],
+      ["Reduce",c.reduce],
+      ["Increase",c.increase],
+      ["Duplicate ERP Code – Manual Review",c.duplicate],
+      ["No ERP Match",c.noMatch],
+      ["Blank/No Code",c.noCode],
+      ["Invalid/Blank Cost or Multiplier",c.invalid],
+      ["Bulk price updates",c.updates]
+    ].forEach(x=>s.addRow(x));
+    s.getColumn(1).width=38; s.getColumn(2).width=18;
+
+    const buffer=await wb.xlsx.writeBuffer();
+    downloadBlob(buffer,"iqbal-all-category-price-review.xlsx");
+    $("status").textContent="Review Excel downloaded.";
+  } catch(err) {
+    console.error(err);
+    $("status").textContent="Review export error: "+(err.message||err);
+  }
+});
+
+$("bulkBtn").addEventListener("click", async () => {
+  if (!resultReady || !window._bulkWorkbook) return;
+  try {
+    $("status").textContent="Building bulk upload workbook…";
+    const buffer=await window._bulkWorkbook.xlsx.writeBuffer();
+    const base=window._onlineFileName.replace(/\.(xlsx|xlsm)$/i,"");
+    downloadBlob(buffer,base+" - UPDATED PRICES.xlsx");
+    $("status").textContent="Bulk upload Excel downloaded. Only safe matched Price cells were changed.";
+  } catch(err) {
+    console.error(err);
+    $("status").textContent="Bulk export error: "+(err.message||err);
+  }
+});
+
+function downloadBlob(buffer, filename) {
+  const blob=new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=filename;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+</script>
+</body>
+</html>
